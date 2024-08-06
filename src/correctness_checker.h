@@ -16,7 +16,7 @@ namespace bench {
 
 class CorrectnessChecker {
  public:
-  static constexpr std::string kFailedTestPrefix = "[Failed]";
+  static constexpr const char* kFailedTestPrefix = "[Failed]";
 
   static bool IsFailedTestStatus(const absl::Status& status);
 
