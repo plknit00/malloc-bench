@@ -216,6 +216,7 @@ int RunAllTraces() {
            "traces/test.trace",
            "traces/test-zero.trace",
        }) {
+    std::cout << "Running trace " << tracefile << std::endl;
     auto result = RunTrace(tracefile);
     if (!result.ok()) {
       std::cerr << "Failed to run trace " << tracefile << ": "
