@@ -12,11 +12,30 @@ namespace bench {
 
 class Block {
  public:
-  uint64_t GetSize() const {
+  Block* create_block_extend_heap(size_t size) {
+    size_t header_length = 8;
+    body_* = reinterpret_cast<uint8_t*>(
+        SingletonHeap::GlobalInstance()->sbrk(size + header_length));
+    SetBlockSize(size);
+    SetFree(false);
+    return this;
+  }
+
+  Block* take_free_block(size_t size) {
+    SetBlockSize(size);
+    SetFree(false);
+    return this;
+  }
+
+  uint64_t GetBlockSize() const {
     return header_ & ~0xf;
   }
 
-  void SetSize(uint64_t size) {
+  uint64_t GetUserSize() const {
+    return GetBlockSize() - 8;
+  }
+
+  void SetBlockSize(uint64_t size) {
     // check first 4 bits are 0, 16 byte alligned size
     MALLOC_ASSERT((size & 0xf) == 0);
     header_ = size | (header_ & 0x1);
@@ -38,6 +57,30 @@ class Block {
     return body_;
   }
 
+  size_t static space_needed_with_header(const size_t& size) {
+    // add size of header to size, 8 bytes
+    size_t round_up = size + 0xff;
+    // round up size of memory needed to be 16 byte aligned
+    // zero out first four bits
+    round_up = round_up & ~0xf;
+    return round_up;
+  }
+
+  size_t static space_needed(const size_t& size) {
+    // round up size of memory needed to be 16 byte aligned
+    // zero out first four bits
+    size_t round_up = size & ~0xf;
+    return round_up;
+  }
+
+  Block* GetNextBlock(Block* current_block) const {
+    return current_block + GetBlockSize();
+  }
+  // which??????????????
+  Block* GetNextBlock() const {
+    return this + GetBlockSize();
+  }
+
  private:
   uint64_t header_;
   // flexible size, returns pointer to beginning of body
@@ -47,63 +90,41 @@ class Block {
 // Called before any allocations are made.
 inline void initialize_heap() {}
 
-size_t space_needed_with_header(const size_t& size) {
-  // add size of header to size, 8 bytes
-  size_t round_up = size + 0xff;
-  // round up size of memory needed to be 16 byte aligned
-  // zero out first four bits
-  round_up = round_up & ~0xf;
-  return round_up;
-}
-
-size_t space_needed(const size_t& size) {
-  // round up size of memory needed to be 16 byte aligned
-  // zero out first four bits
-  size_t round_up = size & ~0xf;
-  return round_up;
-}
-
 // implicit implementation
 // more asserts ????????????????????????
+// check for consistency on size w and wo header
+// what am i returning?
 inline void* malloc(size_t size) {
   // allocating no space, do nothing
   if (size == 0) {
     return nullptr;
   }
-  size_t new_size_w_header = space_needed_with_header(size);
-  size_t new_size = space_needed(size);
+  auto* start_block =
+      reinterpret_cast<Block*>(SingletonHeap::GlobalInstance()->Start());
   // heap is empty, allocate space
   if (SingletonHeap::GlobalInstance()->Size() == 0) {
-    auto* block = reinterpret_cast<Block*>(
-        SingletonHeap::GlobalInstance()->sbrk(new_size_w_header));
-    block->SetSize(new_size);
-    block->SetFree(false);
-    return block;
+    start_block->create_block_extend_heap(size);
+    return start_block;
   }
+  auto* current_block = start_block;
+  auto* end_block =
+      reinterpret_cast<Block*>(SingletonHeap::GlobalInstance()->End());
   // search current heap for free memory of size size
-  auto* current_block =
-      reinterpret_cast<Block*>(SingletonHeap::GlobalInstance()->Start());
-  // does this while cond work or do i need to cast end????????????????
-  while (current_block != SingletonHeap::GlobalInstance()->End()) {
+  while (current_block != end_block) {
     if (current_block->IsFree()) {
-      if (current_block->GetSize() >= new_size_w_header) {
-        auto* block = reinterpret_cast<Block*>(
-            SingletonHeap::GlobalInstance()->sbrk(new_size_w_header));
-        block->SetSize(new_size);
-        block->SetFree(false);
-        //  how to combine with current_block ????????????????????
-        // overload = ?
-        current_block = block;
+      if (current_block->GetUserSize() >= size) {
+        current_block->take_free_block(size);
         return current_block;
       }
     }
+    // WHAT??????????????????????
+    current_block = current_block->GetNextBlock(current_block);
   }
   // need to increase heap size for this call
-  auto* block = reinterpret_cast<Block*>(
-      SingletonHeap::GlobalInstance()->sbrk(new_size_w_header));
-  block->SetSize(new_size);
-  block->SetFree(false);
-  return block;
+  // could be current block but must assert this equals end block???? maybe
+  // doesnt matter
+  end_block->create_block_extend_heap(size);
+  return end_block;
 }
 
 inline void* calloc(size_t nmemb, size_t size) {
