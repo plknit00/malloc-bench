@@ -12,15 +12,6 @@ namespace bench {
 
 class Block {
  public:
-  Block* create_block_extend_heap(size_t size) {
-    size_t header_length = 8;
-    body_* = reinterpret_cast<uint8_t*>(
-        SingletonHeap::GlobalInstance()->sbrk(size + header_length));
-    SetBlockSize(size);
-    SetFree(false);
-    return this;
-  }
-
   Block* take_free_block(size_t size) {
     SetBlockSize(size);
     SetFree(false);
@@ -57,22 +48,6 @@ class Block {
     return body_;
   }
 
-  size_t static space_needed_with_header(const size_t& size) {
-    // add size of header to size, 8 bytes
-    size_t round_up = size + 0xff;
-    // round up size of memory needed to be 16 byte aligned
-    // zero out first four bits
-    round_up = round_up & ~0xf;
-    return round_up;
-  }
-
-  size_t static space_needed(const size_t& size) {
-    // round up size of memory needed to be 16 byte aligned
-    // zero out first four bits
-    size_t round_up = size & ~0xf;
-    return round_up;
-  }
-
   Block* GetNextBlock(Block* current_block) const {
     return current_block + GetBlockSize();
   }
@@ -87,6 +62,30 @@ class Block {
   uint8_t body_[];
 };
 
+size_t static space_needed_with_header(const size_t& size) {
+  // add size of header to size, 8 bytes
+  size_t round_up = size + 0xff;
+  // round up size of memory needed to be 16 byte aligned
+  // zero out first four bits
+  round_up = round_up & ~0xf;
+  return round_up;
+}
+
+size_t static space_needed(const size_t& size) {
+  // round up size of memory needed to be 16 byte aligned
+  // zero out first four bits
+  size_t round_up = size & ~0xf;
+  return round_up;
+}
+
+Block* create_block_extend_heap(size_t size) {
+  auto* block = reinterpret_cast<Block*>(
+      SingletonHeap::GlobalInstance()->sbrk(space_needed_with_header(size)));
+  block->SetBlockSize(size);
+  block->SetFree(false);
+  return block;
+}
+
 // Called before any allocations are made.
 inline void initialize_heap() {}
 
@@ -94,6 +93,8 @@ inline void initialize_heap() {}
 // more asserts ????????????????????????
 // check for consistency on size w and wo header
 // what am i returning?
+// how do i know thw blocks im creating/editing are contiguous in memory? does
+// singletonheap manage that?
 inline void* malloc(size_t size) {
   // allocating no space, do nothing
   if (size == 0) {
@@ -103,8 +104,8 @@ inline void* malloc(size_t size) {
       reinterpret_cast<Block*>(SingletonHeap::GlobalInstance()->Start());
   // heap is empty, allocate space
   if (SingletonHeap::GlobalInstance()->Size() == 0) {
-    start_block->create_block_extend_heap(size);
-    return start_block;
+    start_block = create_block_extend_heap(size);
+    return start_block->GetBody();
   }
   auto* current_block = start_block;
   auto* end_block =
@@ -114,17 +115,18 @@ inline void* malloc(size_t size) {
     if (current_block->IsFree()) {
       if (current_block->GetUserSize() >= size) {
         current_block->take_free_block(size);
-        return current_block;
+        return current_block->GetBody();
       }
     }
     // WHAT??????????????????????
+    current_block = current_block->GetNextBlock();
     current_block = current_block->GetNextBlock(current_block);
   }
   // need to increase heap size for this call
   // could be current block but must assert this equals end block???? maybe
   // doesnt matter
-  end_block->create_block_extend_heap(size);
-  return end_block;
+  end_block = create_block_extend_heap(size);
+  return end_block->GetBody();
 }
 
 inline void* calloc(size_t nmemb, size_t size) {
